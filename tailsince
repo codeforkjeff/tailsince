@@ -1,0 +1,270 @@
+#!/usr/bin/env python
+#
+# Tail a (log) file, showing lines since a given date, or since a period of time.
+
+import datetime
+import itertools
+import optparse
+import os.path
+import re
+import sys
+
+
+HELP_EPILOG = """
+PERIOD is a string without whitespace representing a time period. Examples:
+
+  1w = 1 week
+  2d = 2 days
+  3h = 3 hours
+  4m = 4 minutes
+  5s = 5 seconds
+  2d12h = 2 days and 12 hours
+
+DATE is a string without whitespace representing a date. The format MUST be
+one of the following:
+
+  YYYY-MM-DD
+  YYYY-MM-DD:HH:MM
+  HH:MM (current date is assumed)
+
+You may optionally create a ~/.tailsince file to list regexes, one per line,
+for parsing dates from the input.
+
+Examples:
+
+  # tail entries since last hour
+  cat /var/log/apache/access.log | tailsince -p 1h
+
+  # tail entries since 3 days, 6 hours
+  tailsince -p 3d6h /var/log/apache/access.log
+
+  # tail entries since 2pm today
+  tailsince -d 14:00 /var/log/apache/access.log
+
+"""
+
+REGEX_ALPHABETIC_OR_NUMERIC = re.compile(r"[0-9]+|[a-zA-Z]+")
+
+# regexes in .tailsince should return these named groups.
+# the order here matches signature of datetime.datetime()
+GROUP_NAMES = [ "year", "month", "day", "hour", "minute", "second" ]
+
+# TODO: add more common patterns here
+TIMESTAMP_PATTERNS = [
+    # java logging
+    re.compile(r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}) (?P<hour>\d{2}):(?P<minute>\d{2})"),
+    # apache logs
+    re.compile(r"(?P<day>\d{2})/(?P<month>\w{3})/(?P<year>\d{4}):(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})")
+]
+
+MONTH_NAMES = {
+    'Jan' : 1, 'January' : 1,
+    'Feb' : 2, 'February' : 2,
+    'Mar' : 3, 'March' : 3,
+    'Apr' : 4, 'April' : 4,
+    'May' : 5,
+    'Jun' : 6, 'June' : 6,
+    'Jul' : 7, 'July' : 7,
+    'Aug' : 8, 'August' : 8,
+    'Sep' : 9, 'September' : 9,
+    'Oct' : 10, 'October' : 10,
+    'Nov' : 11, 'November' : 11,
+    'Dec' : 12, 'December' : 12,
+}
+
+# dict of unit codes to keyword param names used by datetime.timedelta()
+UNITS = { "w" : "weeks",
+          "d" : "days",
+          "h" : "hours",
+          "m" : "minutes",
+          "s" : "seconds" }
+
+
+class HelpFormatter(optparse.IndentedHelpFormatter):
+    """
+    override stupid format_epilog() that doesn't print newlines
+    """
+    def format_epilog(self, epilog):
+        return epilog
+
+
+def group_name_val_to_int(group_name, s, regex):
+    """
+    converts str 's', which is a value found from matching regex (str)
+    in group_name, to an int.
+    """
+    try:
+        intval = int(s)
+    except Exception, e:
+        raise Exception("non-integer value %s found in group %s for regex %s" % (s, group_name, regex))
+    return intval
+
+
+def match_line(line, patterns, threshold):
+    """
+    Returns true if date found in line str (as extracted by any
+    regex object in patterns list) is within threshold (datetime.timedelta
+    object).
+    """
+    for pattern in patterns:
+        m = pattern.search(line)
+        if m:
+            # TODO: error check
+            dict_ = m.groupdict()
+            monthval = dict_.get('month')
+            dict_['month'] = MONTH_NAMES.get(monthval) or monthval
+            # tuples of (groupname, str value)
+            tuples = [(group_name, dict_.get(group_name, 0)) for group_name in GROUP_NAMES]
+            values = [group_name_val_to_int(t[0], t[1], pattern.pattern) for t in tuples]
+            d = datetime.datetime(*values)
+            if d >= threshold:
+                return True
+    return False
+
+
+def grouper(n, iterable, padvalue=None):
+    """
+    grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')
+
+    shamelessly stolen from http://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks-in-python
+    """
+    return itertools.izip_longest(*[iter(iterable)]*n, fillvalue=padvalue)
+
+
+def period_to_timedelta(period):
+    """
+    period is a str that is composed of pairs of numbers and unit
+    codes in succession, without whitespace, representing a time
+    period. returns a timedelta object
+
+    e.g. 1d = 1 day
+         2w = 2 weeks
+         3d5h = 3 days and 5 hours
+    """
+    params = {}
+    parts = REGEX_ALPHABETIC_OR_NUMERIC.findall(period)
+    if len(parts) % 2 != 0:
+        raise Exception("Couldn't parse period str: %s, doesn't seem to have right number of pairs of numbers and unit codes" % (period,))
+    pairs = grouper(2, parts)
+    for pair in pairs:
+        num, unit = pair
+        if unit in UNITS:
+            params[UNITS[unit]] = int(num)
+        else:
+            raise Exception("%s isn't a valid code for a unit of time " % (unit,))
+    return datetime.timedelta(**params)
+
+
+def parse_date(date_str):
+    """
+    date_str must be a string in one of these formats:
+
+    YYYY-MM-DD
+    YYYY-MM-DD:HH:MM
+    HH:MM (current date is assumed)
+    """
+    keep_trying = False
+    date = None
+    try:
+        date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError, e:
+        keep_trying = True
+
+    if keep_trying:
+        try:
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
+            keep_trying = False
+        except ValueError, e:
+            keep_trying = True
+
+    if keep_trying:
+        # assume current date when we're only given time
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d") + ":" + date_str
+        try:
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
+            keep_trying = False
+        except ValueError, e:
+            keep_trying = True
+
+    return date
+
+
+def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None):
+    """
+    Tail the inputfile to outputfile (both file objects), using
+    patterns (list of regex objects), starting at either specified
+    date (str) or first date within a certain period (str) of time
+    from the present.
+
+    A specified date takes precedence over period. See parse_date() for valid formats.
+    """
+
+    delta_dict = {}
+
+    if date is not None:
+        threshold = parse_date(date)
+        if threshold is None:
+            raise Exception("Couldn't parse date: %s" % (date,))
+    elif period is not None:
+        threshold = datetime.datetime.now() - period_to_timedelta(period)
+
+    if outputfile is None:
+        outputfile = sys.stdout
+
+    output = False
+    for line in inputfile:
+        output = output or match_line(line, patterns, threshold)
+        if output:
+            try:
+                outputfile.write(line)
+            except IOError, e:
+                pass
+
+
+def main():
+    parser = optparse.OptionParser("usage: %prog FILE",
+                                   description="Tail a (log) file, showing lines since a given date, or since a period of time. With no FILE, or when FILE is -, read standard input.",
+                                   formatter=HelpFormatter(),
+                                   epilog=HELP_EPILOG)
+
+    # TODO
+    #parser.add_option("-u", "--utc", dest="utc", help="interpret dates as UTC")
+    parser.add_option("-p", "--period", dest="period", default="1d", help="period of time (defaults to \"1d\" or 1 day)")
+    parser.add_option("-d", "--date", dest="date", help="use a specified date instead of a period of time. this takes precedence over -p")
+    parser.add_option("-a", "--append-patterns", dest="append_patterns", action="store_true", help="append, rather than replace, default patterns with patterns from ~/.tailsince")
+
+    (options, args) = parser.parse_args()
+
+    inputfile = sys.stdin
+    if len(args) == 1 and args[0] != "-":
+        inputfile = open(args[0], "r")
+
+    patterns = TIMESTAMP_PATTERNS
+
+    patterns_file = os.path.expanduser("~/.tailsince")
+    if os.path.exists(patterns_file):
+        if not options.append_patterns:
+            patterns = []
+        with open(patterns_file, "r") as f:
+            lines = [line for line in f.readlines() if not line.strip().startswith("#") and line.strip()]
+            lines = [line.strip() for line in lines]
+            patterns.extend([re.compile(line) for line in lines])
+
+    tailsince(inputfile, patterns, date=options.date, period=options.period, outputfile=sys.stdout)
+
+    try:
+        sys.stdout.close()
+    except IOError:
+        pass
+
+    try:
+        sys.stderr.close()
+    except IOError:
+        pass
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception, e:
+        print e
