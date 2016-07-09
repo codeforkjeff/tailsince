@@ -8,6 +8,7 @@ import optparse
 import os.path
 import re
 import sys
+import traceback
 
 
 HELP_EPILOG = """
@@ -40,6 +41,10 @@ Examples:
 
   # tail entries since 2pm today
   tailsince -d 14:00 /var/log/apache/access.log
+
+  # tail entries since 2pm today, starting at 5,000 lines from EOF
+  # (useful for very large files)
+  tailsince -n 5000 -d 14:00 /var/log/apache/access.log
 
 """
 
@@ -189,7 +194,58 @@ def parse_date(date_str):
     return date
 
 
-def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None):
+def find_all(a_str, sub):
+    """
+    Fast string search (uses string.find()) that returns list of all
+    occurrences of sub in a_str, as indexes.
+
+    shamelessly adapted from http://stackoverflow.com/questions/4664850/find-all-occurrences-of-a-substring-in-python
+    """
+    positions = []
+    start = 0
+    while True:
+        start = a_str.find(sub, start)
+        if start == -1: return positions
+        positions.append(start)
+        start += len(sub) # use start += 1 to find overlapping matches
+
+
+def count_bytes_from_eof(inputfile, filesize, lines_from_end, bufsize=131072):
+    line_count = -1
+    whence = 0
+    buf_i = 0
+    bof = False # beginning of file
+    while line_count != lines_from_end and not bof:
+        bytes_from_end = bufsize * buf_i
+
+        if bytes_from_end > filesize:
+            bytes_from_end = filesize
+            bof = True
+
+        inputfile.seek(-1 * bytes_from_end, 2)
+        buf = inputfile.read(bufsize)
+
+        positions = find_all(buf, "\n")
+        positions.reverse()
+
+        count = 0
+        num_bytes_examined = -1
+        for pos in positions:
+            line_count += 1
+            if line_count == lines_from_end:
+                num_bytes_examined = len(buf) - pos
+                break
+        if num_bytes_examined == -1:
+            num_bytes_examined = len(buf)
+
+        whence += num_bytes_examined
+
+        buf_i += 1
+
+    return whence
+
+
+def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None, lines_from_end=None, filesize=None, bufsize=131072):
     """
     Tail the inputfile to outputfile (both file objects), using
     patterns (list of regex objects), starting at either specified
@@ -211,6 +267,17 @@ def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None):
     if outputfile is None:
         outputfile = sys.stdout
 
+    # seek to the position lines_from_end
+    if lines_from_end is not None:
+        if filesize == 0:
+            raise Exception("can't seek lines_from_end when filesize is 0")
+
+        whence = count_bytes_from_eof(inputfile, filesize, lines_from_end, bufsize=bufsize)
+
+        if whence != 0:
+            # print "seeking to %s" % (whence,)
+            inputfile.seek(-1 * (whence), 2)
+
     output = False
     for line in inputfile:
         output = output or match_line(line, patterns, threshold)
@@ -231,13 +298,16 @@ def main():
     #parser.add_option("-u", "--utc", dest="utc", help="interpret dates as UTC")
     parser.add_option("-p", "--period", dest="period", default="1d", help="period of time (defaults to \"1d\" or 1 day)")
     parser.add_option("-d", "--date", dest="date", help="use a specified date instead of a period of time. this takes precedence over -p")
+    parser.add_option("-n", "--start-num-lines-from-end", dest="num_lines", type="int", help="start searching n lines from end of file")
     parser.add_option("-a", "--append-patterns", dest="append_patterns", action="store_true", help="append, rather than replace, default patterns with patterns from ~/.tailsince")
 
     (options, args) = parser.parse_args()
 
     inputfile = sys.stdin
+    filesize = 0
     if len(args) == 1 and args[0] != "-":
         inputfile = open(args[0], "r")
+        filesize = os.path.getsize(args[0])
 
     patterns = TIMESTAMP_PATTERNS
 
@@ -250,7 +320,7 @@ def main():
             lines = [line.strip() for line in lines]
             patterns.extend([re.compile(line) for line in lines])
 
-    tailsince(inputfile, patterns, date=options.date, period=options.period, outputfile=sys.stdout)
+    tailsince(inputfile, patterns, date=options.date, period=options.period, outputfile=sys.stdout, lines_from_end=options.num_lines, filesize=filesize)
 
     try:
         sys.stdout.close()
@@ -267,4 +337,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception, e:
-        print e
+        traceback.print_exc()
