@@ -299,7 +299,8 @@ def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None, line
             try:
                 output_fileobj.write(line)
             except IOError as e:
-                pass
+                # this can happen on a broken pipe
+                break
 
 
 def main():
