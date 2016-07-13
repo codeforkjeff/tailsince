@@ -227,7 +227,12 @@ def count_bytes_from_eof(inputfile, filesize, lines_from_end, bufsize=131072):
             bof = True
 
         inputfile.seek(-1 * bytes_from_end, 2)
-        buf = inputfile.read(bufsize)
+        if bof:
+            # read the chunk of remaining bytes that's < bufsize
+            # at the beginning of file
+            buf = inputfile.read(filesize - bufsize * (buf_i -1))
+        else:
+            buf = inputfile.read(bufsize)
 
         positions = find_all(buf, b"\n")
         positions.reverse()
