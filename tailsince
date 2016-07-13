@@ -57,9 +57,9 @@ GROUP_NAMES = [ "year", "month", "day", "hour", "minute", "second" ]
 # TODO: add more common patterns here
 TIMESTAMP_PATTERNS = [
     # java logging
-    re.compile(r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}) (?P<hour>\d{2}):(?P<minute>\d{2})"),
+    re.compile(b"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}) (?P<hour>\d{2}):(?P<minute>\d{2})"),
     # apache logs
-    re.compile(r"(?P<day>\d{2})/(?P<month>\w{3})/(?P<year>\d{4}):(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})")
+    re.compile(b"(?P<day>\d{2})/(?P<month>\w{3})/(?P<year>\d{4}):(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})")
 ]
 
 MONTH_NAMES = {
@@ -84,6 +84,10 @@ UNITS = { "w" : "weeks",
           "m" : "minutes",
           "s" : "seconds" }
 
+if hasattr(itertools, "zip_longest"):
+    zip_longest = itertools.zip_longest
+else:
+    zip_longest = itertools.izip_longest
 
 class HelpFormatter(optparse.IndentedHelpFormatter):
     """
@@ -100,7 +104,7 @@ def group_name_val_to_int(group_name, s, regex):
     """
     try:
         intval = int(s)
-    except Exception, e:
+    except Exception as e:
         raise Exception("non-integer value %s found in group %s for regex %s" % (s, group_name, regex))
     return intval
 
@@ -133,7 +137,7 @@ def grouper(n, iterable, padvalue=None):
 
     shamelessly stolen from http://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks-in-python
     """
-    return itertools.izip_longest(*[iter(iterable)]*n, fillvalue=padvalue)
+    return zip_longest(*[iter(iterable)]*n, fillvalue=padvalue)
 
 
 def period_to_timedelta(period):
@@ -172,14 +176,14 @@ def parse_date(date_str):
     date = None
     try:
         date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError, e:
+    except ValueError as e:
         keep_trying = True
 
     if keep_trying:
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
             keep_trying = False
-        except ValueError, e:
+        except ValueError as e:
             keep_trying = True
 
     if keep_trying:
@@ -188,7 +192,7 @@ def parse_date(date_str):
         try:
             date = datetime.datetime.strptime(date_str, "%Y-%m-%d:%H:%M")
             keep_trying = False
-        except ValueError, e:
+        except ValueError as e:
             keep_trying = True
 
     return date
@@ -225,7 +229,7 @@ def count_bytes_from_eof(inputfile, filesize, lines_from_end, bufsize=131072):
         inputfile.seek(-1 * bytes_from_end, 2)
         buf = inputfile.read(bufsize)
 
-        positions = find_all(buf, "\n")
+        positions = find_all(buf, b"\n")
         positions.reverse()
 
         count = 0
@@ -279,12 +283,17 @@ def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None, line
             inputfile.seek(-1 * (whence), 2)
 
     output = False
+
+    output_fileobj = outputfile
+    if hasattr(outputfile, "buffer"):
+        output_fileobj = outputfile.buffer
+
     for line in inputfile:
         output = output or match_line(line, patterns, threshold)
         if output:
             try:
-                outputfile.write(line)
-            except IOError, e:
+                output_fileobj.write(line)
+            except IOError as e:
                 pass
 
 
@@ -306,7 +315,7 @@ def main():
     inputfile = sys.stdin
     filesize = 0
     if len(args) == 1 and args[0] != "-":
-        inputfile = open(args[0], "r")
+        inputfile = open(args[0], "rb")
         filesize = os.path.getsize(args[0])
 
     patterns = TIMESTAMP_PATTERNS
@@ -336,5 +345,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception, e:
+    except Exception as e:
         traceback.print_exc()
