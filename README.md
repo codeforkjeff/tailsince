@@ -70,7 +70,7 @@ for parsing timestamps from the input.
 Examples:
 
   # tail entries since last hour
-  tailsince -p 1h /var/log/apache/access.log
+  tailsince -p 1h < /var/log/apache/access.log
 
   # tail entries since 3 days, 6 hours
   tailsince -p 3d6h /var/log/apache/access.log
