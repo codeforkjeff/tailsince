@@ -29,7 +29,7 @@ one of the following:
   HH:MM (current date is assumed)
 
 You may optionally create a ~/.tailsince file to list regexes, one per line,
-for parsing dates from the input.
+for parsing timestamps from the input.
 
 Examples:
 

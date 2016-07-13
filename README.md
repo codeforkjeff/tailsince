@@ -65,7 +65,7 @@ one of the following:
   HH:MM (current date is assumed)
 
 You may optionally create a ~/.tailsince file to list regexes, one per line,
-for parsing dates from the input.
+for parsing timestamps from the input.
 
 Examples:
 
@@ -82,4 +82,22 @@ Examples:
   # (useful for very large files)
   tailsince -n 5000 -d 14:00 /var/log/apache/access.log
   
+```
+
+Customizing timestamp parsing
+-----------------------------
+
+You may optionally create a ~/.tailsince file to list regexes, one per
+line, for parsing timestamps from the input. This lets you use
+tailsince for log files that use any timestamp format.
+
+Regex patterns can return these named groups: "year", "month", "day",
+"hour", "minute", "second". month is handled as a special case, where
+the parsed value can be a digit, a 3-letter month abbreviation
+(e.g. "Jul") or a fully spelled out month name.
+
+For example, here's the regex for parsing Apache log timestamps:
+
+```
+(?P<day>\d{2})/(?P<month>\w{3})/(?P<year>\d{4}):(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})
 ```
