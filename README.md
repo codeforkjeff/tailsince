@@ -1,4 +1,35 @@
 
+tailsince
+=========
+
+Tail a (log) file, showing lines since a given date, or since a period of
+time.
+
+Requirements
+------------
+
+You'll need to have Python 2.7+ installed. Compatible with Python 3.
+
+Installation
+------------
+
+- Clone or download this repository.
+
+- Make sure the file `tailsince` is executable by all, and move it to
+  a bin directory in your path. `/usr/local/bin` is a good choice.
+  
+  ```
+  chmod 0755 tailsince
+  sudo cp tailsince /usr/local/bin
+  ```
+
+- You should now be able to run `tailsince` anywhere.
+
+Usage
+-----
+
+Here is the output of `tailsince -h`:
+
 ```
 Usage: tailsince FILE
 
