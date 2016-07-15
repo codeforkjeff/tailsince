@@ -2,7 +2,7 @@
 tailsince
 =========
 
-Tail a (log) file, showing lines since a given date, or since a period of
+Tail a (log) file, showing lines since a given timestamp or period of
 time.
 
 Requirements
@@ -33,7 +33,7 @@ Here is the output of `tailsince -h`:
 ```
 Usage: tailsince FILE
 
-Tail a (log) file, showing lines since a given date, or since a period of
+Tail a (log) file, showing lines since a given timestamp or period of
 time. With no FILE, or when FILE is -, read standard input.
 
 Options:

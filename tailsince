@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Tail a (log) file, showing lines since a given date, or since a period of time.
+# Tail a (log) file, showing lines since a given timestamp or period of time.
 
 import datetime
 import itertools
@@ -305,7 +305,7 @@ def tailsince(inputfile, patterns, date=None, period="1d", outputfile=None, line
 
 def main():
     parser = optparse.OptionParser("usage: %prog FILE",
-                                   description="Tail a (log) file, showing lines since a given date, or since a period of time. With no FILE, or when FILE is -, read standard input.",
+                                   description="Tail a (log) file, showing lines since a given timestamp or period of time. With no FILE, or when FILE is -, read standard input.",
                                    formatter=HelpFormatter(),
                                    epilog=HELP_EPILOG)
 
